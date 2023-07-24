@@ -4,4 +4,4 @@ tiktoken==0.3.3
 langchain
 chainlit==0.5.2
 google-search-results
-oidc-client
+fastapi-login

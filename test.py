@@ -38,7 +38,8 @@ from chainlit.types import (
     DeleteConversationRequest,
 )
 
-@app.post("/helloworld")
+
+@app.get("/helloworld")
 async def helloworld(request: Request):
     """Get all the members of a project."""
     return JSONResponse(content={"members": "HELLO WORLD"})
@@ -46,12 +47,8 @@ async def helloworld(request: Request):
 chainlit = app.router.routes
 hello_route = chainlit[-1]
 chainlit.insert(-2, hello_route)
-# chainlit.insert(-2, chainlit[-1])
+chainlit.pop()
 for route in app.router.routes:
-#     if route.name == "serve":
-#         print()
-#         print('serve')
-#         print()
     print(route)
 
 import chainlit as cl
