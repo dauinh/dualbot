@@ -1,3 +1,52 @@
+from chainlit.server import app
+import mimetypes
+
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+
+import os
+import webbrowser
+from pathlib import Path
+
+
+from contextlib import asynccontextmanager
+from watchfiles import awatch
+
+from fastapi import FastAPI, Request
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    FileResponse,
+    PlainTextResponse,
+)
+from fastapi_socketio import SocketManager
+from starlette.middleware.cors import CORSMiddleware
+import asyncio
+
+from chainlit.config import config, load_module, reload_config, DEFAULT_HOST
+from chainlit.client.utils import (
+    get_auth_client_from_request,
+    get_db_client_from_request,
+)
+from chainlit.markdown import get_markdown_str
+from chainlit.telemetry import trace_event
+from chainlit.logger import logger
+from chainlit.types import (
+    CompletionRequest,
+    UpdateFeedbackRequest,
+    GetConversationsRequest,
+    DeleteConversationRequest,
+)
+
+@app.get("/oidc_oauth")
+async def oidc_oauth(request: Request):
+    return JSONResponse(content={request})
+
+chainlit = app.router.routes
+hello_route = chainlit[-1]
+chainlit.insert(-2, hello_route)
+chainlit.pop()
+
 import chainlit as cl
 
 from setup import search_agent
