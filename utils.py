@@ -78,7 +78,8 @@ async def create_pdf_agent():
     )
 
     # Let the user know that the system is ready
-    await msg.update(content=f"`{file.name}` processed.")
+    msg.content=f"`{file.name}` processed."
+    await msg.update()
 
     return agent
 
@@ -88,6 +89,7 @@ async def process_response(res):
     pdf_mode = cl.user_session.get("pdf_mode")
     print("after session", pdf_mode)
     if not pdf_mode:
+        await cl.Message(content=res["output"]).send()
         return
 
     answer = res["answer"]
