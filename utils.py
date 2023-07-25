@@ -58,7 +58,7 @@ async def create_pdf_agent():
             content="Welcome to the PDF reader mode! Upload a PDF or a text file",
             accept=["text/plain", "application/pdf"],
             max_files=1,
-            max_size_mb=20,
+            max_size_mb=50,
             timeout=180,
         ).send()
 
