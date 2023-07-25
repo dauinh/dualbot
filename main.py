@@ -44,8 +44,8 @@ async def serve(request: Request):
     return response
 
 
-@app.get("/helloworld")
-async def helloworld(request: Request):
+@app.get("/auth")
+async def auth(request: Request):
     # print(request._query_params)
     auth_code = request._query_params['code']
     url = 'https://pressingly-account.onrender.com/oauth/token'
@@ -56,9 +56,7 @@ async def helloworld(request: Request):
         'redirect_uri': REDIRECT_URL,
         'code': auth_code
     }
-    # print("query params", myobj)
     response = requests.post(url, json = myobj).json()
-
     access_token = 'Bearer ' + response['access_token']
     headers = {'Authorization': access_token}
 
