@@ -10,19 +10,21 @@ from fastapi.responses import (
     RedirectResponse,
 )
 
+import os
 import webbrowser
 import requests
-import jwt
 import chainlit as cl
 from chainlit.user_session import user_sessions
 import uuid
 
-REDIRECT_URL = "https://067e-1-52-67-163.ngrok-free.app/helloworld"
-OIDC_CLIENT_ID = "BQtrzwLnZ-TxmH4RvENaF8jkGUln14CdZJrl729kE_U"
-OIDC_CLIENT_SECRET = "2DgU7u1YGIGy5IuP_dbkO2DroPWe3y9hvdMB92SAih8"
-login="https://pressingly-account.onrender.com/oauth/authorize?client_id=BQtrzwLnZ-TxmH4RvENaF8jkGUln14CdZJrl729kE_U&redirect_uri=https%3A%2F%2F067e-1-52-67-163.ngrok-free.app%2Fhelloworld&response_type=code&scope=openid+email"
+from dotenv import load_dotenv
 
-chainlit_route = app.router.routes
+load_dotenv()
+
+REDIRECT_URL = os.environ["REDIRECT_URL"]
+OIDC_CLIENT_ID = os.environ["OIDC_CLIENT_ID"]
+OIDC_CLIENT_SECRET = os.environ["OIDC_CLIENT_SECRET"]
+LOGIN_URL = os.environ["LOGIN_URL"]
 
 
 @app.get("/")
@@ -41,6 +43,7 @@ async def serve(request: Request):
     user_sessions[chainlit_session_id] = {"auth_email": auth_email}
     return response
 
+
 @app.get("/helloworld")
 async def helloworld(request: Request):
     # print(request._query_params)
@@ -53,24 +56,17 @@ async def helloworld(request: Request):
         'redirect_uri': REDIRECT_URL,
         'code': auth_code
     }
-    public_key = "v5Ins_85RHfOXvMMJ1Peqdjyv-o98CmONMhAtoV0ctI"
-    print("query params", myobj)
-    x = requests.post(url, json = myobj)
-    response = x.json()
-    print(x.json())
-    id_token = response['id_token']
+    # print("query params", myobj)
+    response = requests.post(url, json = myobj).json()
+
     access_token = 'Bearer ' + response['access_token']
-    # print(access_token)
-    userinfo_url = "https://pressingly-account.onrender.com/oauth/userinfo"
     headers = {'Authorization': access_token}
-    y = requests.get(userinfo_url, headers=headers)
-    auth_email = y.json()['email']
-    header, payload, signature = id_token.split('.')
-    decoded_payload = jwt.utils.base64url_decode(payload)
-    decoded_payload = decoded_payload.decode('utf8').replace("'", '"')
+
+    userinfo_url = "https://pressingly-account.onrender.com/oauth/userinfo"
+    y = requests.get(userinfo_url, headers=headers).json()
+    auth_email = y['email']
 
     response = RedirectResponse("/")
-    # response = JSONResponse(content={"hello": response, "payload": decoded_payload, "userinfo": y.json()})
     response.set_cookie(key="auth_email", value=auth_email)
     return response
 
@@ -137,7 +133,7 @@ async def main(message: str):
 
 @cl.action_callback("login")
 async def on_action(action):
-    webbrowser.open(login)
+    webbrowser.open(LOGIN_URL)
 
 
 @cl.action_callback("pdf_mode")
