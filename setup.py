@@ -43,7 +43,7 @@ pinecone.init(
 index_name = "langchain-demo"
 embedding_size = 1536
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-embeddings = OpenAIEmbeddings()
+embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
 namespaces = set()
 
 if index_name not in pinecone.list_indexes():

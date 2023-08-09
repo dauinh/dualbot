@@ -7,6 +7,9 @@ from chainlit.types import AskFileResponse
 
 from setup import index_name, text_splitter, namespaces, embeddings, pdfllm
 
+import tiktoken
+encoding = tiktoken.get_encoding("cl100k_base")
+encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
 def process_file(file: AskFileResponse):
     """Read text files from user input"""
@@ -17,19 +20,21 @@ def process_file(file: AskFileResponse):
     elif file.type == "application/pdf":
         Loader = PyPDFLoader
 
+    tokens = 0
     with tempfile.NamedTemporaryFile() as tempfile:
         tempfile.write(file.content)
         loader = Loader(tempfile.name)
         documents = loader.load()
         docs = text_splitter.split_documents(documents)
         for i, doc in enumerate(docs):
+            tokens += len(encoding.encode(doc.page_content))
             doc.metadata["source"] = f"source_{i}"
-        return docs
+        return docs, tokens
 
 
 def get_docsearch(file: AskFileResponse):
     """Save documents as token into Pinecone vector"""
-    docs = process_file(file)
+    docs, tokens = process_file(file)
 
     # Save data in the user session
     cl.user_session.set("docs", docs)
@@ -47,7 +52,7 @@ def get_docsearch(file: AskFileResponse):
         )
         namespaces.add(namespace)
 
-    return docsearch
+    return docsearch, tokens
 
 
 async def create_pdf_agent():
@@ -68,7 +73,7 @@ async def create_pdf_agent():
     await msg.send()
 
     # No async implementation in the Pinecone client, fallback to sync
-    docsearch = await cl.make_async(get_docsearch)(file)
+    docsearch, tokens = await cl.make_async(get_docsearch)(file)
 
     agent = RetrievalQAWithSourcesChain.from_chain_type(
         llm=pdfllm,
@@ -81,7 +86,7 @@ async def create_pdf_agent():
     msg.content=f"`{file.name}` processed."
     await msg.update()
 
-    return agent
+    return agent, tokens
 
 
 async def process_response(res):

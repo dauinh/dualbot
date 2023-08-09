@@ -76,8 +76,14 @@ chainlit_route.append(wildcard_route)
 
 
 import chainlit as cl
+from langchain.callbacks import get_openai_callback
+
 from setup import search_agent
 from utils import create_pdf_agent, process_response
+
+import tiktoken
+encoding = tiktoken.get_encoding("cl100k_base")
+encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
 
 @cl.on_chat_start
@@ -94,12 +100,14 @@ async def start():
     cl.user_session.set("search_agent", search_agent)
 
     email = cl.user_session.get('auth_email')
-    if not email:
-        email = 'New User!'
-    # print("auth_email", email)
+    if email:
+        login_msg = f"Hello {email}"
+    else:
+        login_msg = f"[Sign in with Pressingly]({LOGIN_URL}) \
+                    \nHello New User!"
+
     await cl.Message(
-        content=f"[Sign in with Pressingly]({LOGIN_URL}) \
-                    \nHello {email} \
+        content=f"{login_msg} \
                     \nPress this button to switch to chat mode with PDF reader. Open a new chat to reset mode.\
                     \nOtherwise, continue to chat for search mode.",
         actions=actions,
@@ -113,14 +121,21 @@ async def main(message: str):
     pdf_agent = cl.user_session.get("pdf_agent")
 
     pdf_mode = cl.user_session.get("pdf_mode")
+    total_tokens = cl.user_session.get("total_tokens")
+    print('doc tokens', total_tokens)
+
+    total_tokens += len(encoding.encode(message))
 
     if pdf_mode:
         res = await pdf_agent.acall(message, callbacks=[cl.AsyncLangchainCallbackHandler()])
+        total_tokens += len(encoding.encode(res['answer']))
     else:
         res = await cl.make_async(search_agent)(message, callbacks=[cl.LangchainCallbackHandler()])
+        total_tokens += len(encoding.encode(res['output']))
 
     # Do any post processing here
     await process_response(res)
+    print('after message', total_tokens)
 
 
 @cl.action_callback("pdf_mode")
@@ -132,5 +147,6 @@ async def on_action(action):
     cl.user_session.set("pdf_mode", True)
     await action.remove()
 
-    pdf_agent = await create_pdf_agent()
+    pdf_agent, tokens = await create_pdf_agent()
+    cl.user_session.set("total_tokens", tokens)
     cl.user_session.set("pdf_agent", pdf_agent)
