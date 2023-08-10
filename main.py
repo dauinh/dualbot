@@ -40,7 +40,10 @@ async def serve(request: Request):
     response.set_cookie(
         key="chainlit-session", value=chainlit_session_id, httponly=True
     )
-    user_sessions[chainlit_session_id] = {"auth_email": auth_email}
+    user_sessions[chainlit_session_id] = {
+        "auth_email": auth_email,
+        "total_tokens": 10**4
+    }
     return response
 
 
@@ -84,8 +87,11 @@ async def charge():
 
 
 @app.get("/testing")
-async def tesing():
-    return {"message": "Hello World"}
+async def tesing(request: Request):
+    chainlit_session_id = request.cookies.get('chainlit-session')
+    total_tokens = user_sessions[chainlit_session_id]['total_tokens']
+    print('send to Pressingly:', total_tokens, 'tokens')
+    return
 
 
 @app.get("/payment")
@@ -161,25 +167,36 @@ async def main(message: str):
     pdf_mode = cl.user_session.get("pdf_mode")
 
     # Embedding model: $0.0001 / 1K tokens
-    total_tokens = cl.user_session.get("total_tokens")
-    print('doc tokens', total_tokens)
+    cur_tokens = cl.user_session.get("cur_tokens")
+    if not cur_tokens:
+        cur_tokens = 0
+    print('before message:', cur_tokens, 'tokens')
 
     # Input $0.0015 / 1K tokens
-    total_tokens += len(encoding.encode(message))
+    cur_tokens += len(encoding.encode(message))
 
     # $0.002 / 1K tokens
     if pdf_mode:
         res = await pdf_agent.acall(message, callbacks=[cl.AsyncLangchainCallbackHandler()])
-        total_tokens += len(encoding.encode(res['answer']))
+        cur_tokens += len(encoding.encode(res['answer']))
     else:
         res = await cl.make_async(search_agent)(message, callbacks=[cl.LangchainCallbackHandler()])
-        total_tokens += len(encoding.encode(res['output']))
+        cur_tokens += len(encoding.encode(res['output']))
 
     # Do any post processing here
     await process_response(res)
-    cl.user_session.set("total_tokens", total_tokens)
-    print('after message', total_tokens)
-    return RedirectResponse("/tesing")
+
+    # Calculate token usage
+    cl.user_session.set("cur_tokens", cur_tokens)
+    print('DEBUG', cl.user_session.get("total_tokens"), cur_tokens)
+    total_tokens = cl.user_session.get("total_tokens") - cur_tokens
+    print('after message:', cl.user_session.get("cur_tokens"), 'tokens')
+    print('remaining tokens:', total_tokens)
+    
+    # User runs out of token credits
+    if total_tokens < 0:
+        await cl.Message(content="You have run out of credits...").send()
+
 
 
 @cl.action_callback("pdf_mode")
@@ -192,5 +209,5 @@ async def on_action(action):
     await action.remove()
 
     pdf_agent, tokens = await create_pdf_agent()
-    cl.user_session.set("total_tokens", tokens)
+    cl.user_session.set("cur_tokens", tokens)
     cl.user_session.set("pdf_agent", pdf_agent)
