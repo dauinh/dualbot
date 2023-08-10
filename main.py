@@ -23,8 +23,8 @@ OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET")
 LOGIN_URL=os.environ.get("LOGIN_URL")
 
-chainlit_route = app.router.routes
-wildcard_route = chainlit_route.pop()
+chainlit_routes = app.router.routes
+wildcard_route = chainlit_routes.pop()
 
 
 @app.get("/")
@@ -72,11 +72,50 @@ async def helloworld(request: Request):
     response.set_cookie(key="auth_email", value=auth_email)
     return response
 
-chainlit_route.append(wildcard_route)
+
+@app.post("/charge")
+async def charge():
+    """Send transaction to Pressingly Server
+    
+    1. send user info to Pressingly
+    2. receives credit token -> save to user session
+    """
+    pass
+
+
+@app.get("/testing")
+async def tesing():
+    return {"message": "Hello World"}
+
+
+@app.get("/payment")
+async def payment(request: Request):
+    """Receives payment complete status from Pressingly Server"""
+    # print(request._query_params)
+    auth_code = request._query_params['code']
+    url = 'https://pressingly-account.onrender.com/oauth/token'
+    payload = {
+        'grant_type': "authorization_code",
+        'client_id': OIDC_CLIENT_ID,
+        'client_secret': OIDC_CLIENT_SECRET,
+        'redirect_uri': REDIRECT_URL,
+        'code': auth_code
+    }
+    # print("query params", payload)
+    x = requests.post(url, json = payload)
+    response = x.json()
+    # print(x.json())
+    
+    # 
+
+    response = RedirectResponse("/")
+    return response
+
+
+chainlit_routes.append(wildcard_route)
 
 
 import chainlit as cl
-from langchain.callbacks import get_openai_callback
 
 from setup import search_agent
 from utils import create_pdf_agent, process_response
@@ -119,13 +158,16 @@ async def main(message: str):
     # Retrieve the chain from the user session
     search_agent = cl.user_session.get("search_agent")
     pdf_agent = cl.user_session.get("pdf_agent")
-
     pdf_mode = cl.user_session.get("pdf_mode")
+
+    # Embedding model: $0.0001 / 1K tokens
     total_tokens = cl.user_session.get("total_tokens")
     print('doc tokens', total_tokens)
 
+    # Input $0.0015 / 1K tokens
     total_tokens += len(encoding.encode(message))
 
+    # $0.002 / 1K tokens
     if pdf_mode:
         res = await pdf_agent.acall(message, callbacks=[cl.AsyncLangchainCallbackHandler()])
         total_tokens += len(encoding.encode(res['answer']))
@@ -135,7 +177,9 @@ async def main(message: str):
 
     # Do any post processing here
     await process_response(res)
+    cl.user_session.set("total_tokens", total_tokens)
     print('after message', total_tokens)
+    return RedirectResponse("/tesing")
 
 
 @cl.action_callback("pdf_mode")
