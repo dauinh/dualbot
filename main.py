@@ -21,7 +21,7 @@ load_dotenv()
 REDIRECT_URL = os.environ.get("REDIRECT_URL")
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET")
-LOGIN_URL=os.environ.get("LOGIN_URL")
+LOGIN_URL = os.environ.get("LOGIN_URL")
 
 chainlit_routes = app.router.routes
 wildcard_route = chainlit_routes.pop()
@@ -33,7 +33,7 @@ async def serve(request: Request):
     html_template = get_html_template()
 
     response = HTMLResponse(content=html_template, status_code=200)
-    auth_email = request.cookies.get('auth_email')
+    auth_email = request.cookies.get("auth_email")
     print("auth_email", auth_email)
 
     chainlit_session_id = str(uuid.uuid4())
@@ -42,7 +42,7 @@ async def serve(request: Request):
     )
     user_sessions[chainlit_session_id] = {
         "auth_email": auth_email,
-        "total_tokens": 10**4
+        "total_tokens": 10**4,
     }
     return response
 
@@ -50,26 +50,26 @@ async def serve(request: Request):
 @app.get("/helloworld")
 async def helloworld(request: Request):
     # print(request._query_params)
-    auth_code = request._query_params['code']
-    url = 'https://pressingly-account.onrender.com/oauth/token'
+    auth_code = request._query_params["code"]
+    url = "https://pressingly-account.onrender.com/oauth/token"
     myobj = {
-        'grant_type': "authorization_code",
-        'client_id': OIDC_CLIENT_ID,
-        'client_secret': OIDC_CLIENT_SECRET,
-        'redirect_uri': REDIRECT_URL,
-        'code': auth_code
+        "grant_type": "authorization_code",
+        "client_id": OIDC_CLIENT_ID,
+        "client_secret": OIDC_CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URL,
+        "code": auth_code,
     }
     print("query params", myobj)
-    x = requests.post(url, json = myobj)
+    x = requests.post(url, json=myobj)
     response = x.json()
     print(x.json())
     # id_token = response['id_token']
-    access_token = 'Bearer ' + response['access_token']
+    access_token = "Bearer " + response["access_token"]
     # print(access_token)
     userinfo_url = "https://pressingly-account.onrender.com/oauth/userinfo"
-    headers = {'Authorization': access_token}
+    headers = {"Authorization": access_token}
     y = requests.get(userinfo_url, headers=headers)
-    auth_email = y.json()['email']
+    auth_email = y.json()["email"]
 
     response = RedirectResponse("/")
     response.set_cookie(key="auth_email", value=auth_email)
@@ -79,7 +79,7 @@ async def helloworld(request: Request):
 @app.post("/charge")
 async def charge():
     """Send transaction to Pressingly Server
-    
+
     1. send user info to Pressingly
     2. receives credit token -> save to user session
     """
@@ -88,9 +88,9 @@ async def charge():
 
 @app.get("/testing")
 async def testing(request: Request):
-    chainlit_session_id = request.cookies.get('chainlit-session')
-    total_tokens = user_sessions[chainlit_session_id]['total_tokens']
-    print('send to Pressingly:', total_tokens, 'tokens')
+    chainlit_session_id = request.cookies.get("chainlit-session")
+    total_tokens = user_sessions[chainlit_session_id]["total_tokens"]
+    print("send to Pressingly:", total_tokens, "tokens")
     return
 
 
@@ -98,21 +98,21 @@ async def testing(request: Request):
 async def payment(request: Request):
     """Receives payment complete status from Pressingly Server"""
     # print(request._query_params)
-    auth_code = request._query_params['code']
-    url = 'https://pressingly-account.onrender.com/oauth/token'
+    auth_code = request._query_params["code"]
+    url = "https://pressingly-account.onrender.com/oauth/token"
     payload = {
-        'grant_type': "authorization_code",
-        'client_id': OIDC_CLIENT_ID,
-        'client_secret': OIDC_CLIENT_SECRET,
-        'redirect_uri': REDIRECT_URL,
-        'code': auth_code
+        "grant_type": "authorization_code",
+        "client_id": OIDC_CLIENT_ID,
+        "client_secret": OIDC_CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URL,
+        "code": auth_code,
     }
     # print("query params", payload)
-    x = requests.post(url, json = payload)
+    x = requests.post(url, json=payload)
     response = x.json()
     # print(x.json())
-    
-    # 
+
+    #
 
     response = RedirectResponse("/")
     return response
@@ -129,6 +129,7 @@ from utils import create_pdf_agent, process_response
 from pprint import pprint
 
 import tiktoken
+
 encoding = tiktoken.get_encoding("cl100k_base")
 encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
@@ -146,7 +147,7 @@ async def start():
     ]
     cl.user_session.set("search_agent", search_agent)
 
-    email = cl.user_session.get('auth_email')
+    email = cl.user_session.get("auth_email")
     if email:
         login_msg = f"Hello {email}"
     else:
@@ -173,36 +174,48 @@ async def main(message: str):
         cur_tokens = cl.user_session.get("cur_tokens")
         if not cur_tokens:
             cur_tokens = 0
-        print('before message:', cur_tokens, 'tokens')
+        print("before message:", cur_tokens, "tokens")
 
         # Input $0.0015 / 1K tokens
         cur_tokens += len(encoding.encode(message))
 
         # $0.002 / 1K tokens
         if pdf_mode:
-            res = await pdf_agent.acall(message, callbacks=[cl.AsyncLangchainCallbackHandler()])
-            cur_tokens += len(encoding.encode(res['answer']))
+            res = await pdf_agent.acall(
+                message, callbacks=[cl.AsyncLangchainCallbackHandler()]
+            )
+            cur_tokens += len(encoding.encode(res["answer"]))
         else:
-            res = await cl.make_async(search_agent)(message, callbacks=[cl.LangchainCallbackHandler()])
-            cur_tokens += len(encoding.encode(res['output']))
+            res = await cl.make_async(search_agent)(
+                message, callbacks=[cl.LangchainCallbackHandler()]
+            )
+            cur_tokens += len(encoding.encode(res["output"]))
 
         # Do any post processing here
         await process_response(res)
 
         # Calculate token usage
         cl.user_session.set("cur_tokens", cur_tokens)
-        print('DEBUG', cl.user_session.get("total_tokens"), cur_tokens)
+        print("DEBUG", cl.user_session.get("total_tokens"), cur_tokens)
         total_tokens = cl.user_session.get("total_tokens") - cur_tokens
-        print('after message:', cl.user_session.get("cur_tokens"), 'tokens')
-        print('remaining tokens:', total_tokens)
-        
+        print("after message:", cl.user_session.get("cur_tokens"), "tokens")
+        print("remaining tokens:", total_tokens)
+
         # User runs out of token credits
-        if total_tokens < 0:
-            await cl.Message(content="You have run out of credits...").send()
+        if total_tokens < 5000:
+            await cl.Message(
+                content="You have run out of credits for current session \
+                        \nOpen new chat for another session"
+            ).send()
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
-    except:
-        await cl.Message(content="You have run out of credits...").send()
+    except AttributeError:
+        await cl.Message(
+            content="You have run out of credits for current session \
+                    \nOpen new chat for another session"
+        ).send()
+    except TypeError:
+        return
 
 
 @cl.action_callback("pdf_mode")

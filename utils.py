@@ -8,8 +8,10 @@ from chainlit.types import AskFileResponse
 from setup import index_name, text_splitter, namespaces, embeddings, pdfllm
 
 import tiktoken
+
 encoding = tiktoken.get_encoding("cl100k_base")
 encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+
 
 def process_file(file: AskFileResponse):
     """Read text files from user input"""
@@ -83,7 +85,7 @@ async def create_pdf_agent():
     )
 
     # Let the user know that the system is ready
-    msg.content=f"`{file.name}` processed."
+    msg.content = f"`{file.name}` processed."
     await msg.update()
 
     return agent, tokens
