@@ -126,24 +126,15 @@ import chainlit as cl
 from setup import search_agent
 from utils import create_pdf_agent, process_response
 
+from pprint import pprint
+
 import tiktoken
 encoding = tiktoken.get_encoding("cl100k_base")
 encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
-def get_chainlit_session_id():
-    for header in app.sio.environ.values():
-        cookie = header['HTTP_COOKIE']
-    _, value = cookie.split("=")
-    return value
 
 @cl.on_chat_start
 async def start():
-    # Get browser cookie --> get total_tokens
-    chainlit_session_id = get_chainlit_session_id()
-    total_tokens = user_sessions[chainlit_session_id]['total_tokens']
-    print(total_tokens)
-    # if total_tokens < 5000:
-    #     await cl.Message(content="You have run out of credits...").send()
     # Always default to search mode
     cl.user_session.set("pdf_mode", False)
 
@@ -206,7 +197,7 @@ async def main(message: str):
         print('remaining tokens:', total_tokens)
         
         # User runs out of token credits
-        if total_tokens < 5000:
+        if total_tokens < 0:
             await cl.Message(content="You have run out of credits...").send()
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
