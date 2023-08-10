@@ -196,17 +196,16 @@ async def main(message: str):
 
         # Calculate token usage
         cl.user_session.set("cur_tokens", cur_tokens)
-        print("DEBUG", cl.user_session.get("total_tokens"), cur_tokens)
-        total_tokens = cl.user_session.get("total_tokens") - cur_tokens
-        print("after message:", cl.user_session.get("cur_tokens"), "tokens")
-        print("remaining tokens:", total_tokens)
+        total_tokens = cl.user_session.get("total_tokens")
+        if total_tokens:
+            print("DEBUG", total_tokens, cur_tokens)
+            print("after message:", cl.user_session.get("cur_tokens"), "tokens")
+            total_tokens -= cur_tokens
+            cl.user_session.set("total_tokens", total_tokens)
+            print("remaining tokens:", total_tokens)
 
         # User runs out of token credits
         if total_tokens < 5000:
-            await cl.Message(
-                content="You have run out of credits for current session \
-                        \nOpen new chat for another session"
-            ).send()
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
     except AttributeError:
@@ -214,8 +213,6 @@ async def main(message: str):
             content="You have run out of credits for current session \
                     \nOpen new chat for another session"
         ).send()
-    except TypeError:
-        return
 
 
 @cl.action_callback("pdf_mode")
