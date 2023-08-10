@@ -87,7 +87,7 @@ async def charge():
 
 
 @app.get("/testing")
-async def tesing(request: Request):
+async def testing(request: Request):
     chainlit_session_id = request.cookies.get('chainlit-session')
     total_tokens = user_sessions[chainlit_session_id]['total_tokens']
     print('send to Pressingly:', total_tokens, 'tokens')
@@ -130,9 +130,20 @@ import tiktoken
 encoding = tiktoken.get_encoding("cl100k_base")
 encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
+def get_chainlit_session_id():
+    for header in app.sio.environ.values():
+        cookie = header['HTTP_COOKIE']
+    _, value = cookie.split("=")
+    return value
 
 @cl.on_chat_start
 async def start():
+    # Get browser cookie --> get total_tokens
+    chainlit_session_id = get_chainlit_session_id()
+    total_tokens = user_sessions[chainlit_session_id]['total_tokens']
+    print(total_tokens)
+    # if total_tokens < 5000:
+    #     await cl.Message(content="You have run out of credits...").send()
     # Always default to search mode
     cl.user_session.set("pdf_mode", False)
 
@@ -161,42 +172,46 @@ async def start():
 
 @cl.on_message
 async def main(message: str):
-    # Retrieve the chain from the user session
-    search_agent = cl.user_session.get("search_agent")
-    pdf_agent = cl.user_session.get("pdf_agent")
-    pdf_mode = cl.user_session.get("pdf_mode")
+    try:
+        # Retrieve the chain from the user session
+        search_agent = cl.user_session.get("search_agent")
+        pdf_agent = cl.user_session.get("pdf_agent")
+        pdf_mode = cl.user_session.get("pdf_mode")
 
-    # Embedding model: $0.0001 / 1K tokens
-    cur_tokens = cl.user_session.get("cur_tokens")
-    if not cur_tokens:
-        cur_tokens = 0
-    print('before message:', cur_tokens, 'tokens')
+        # Embedding model: $0.0001 / 1K tokens
+        cur_tokens = cl.user_session.get("cur_tokens")
+        if not cur_tokens:
+            cur_tokens = 0
+        print('before message:', cur_tokens, 'tokens')
 
-    # Input $0.0015 / 1K tokens
-    cur_tokens += len(encoding.encode(message))
+        # Input $0.0015 / 1K tokens
+        cur_tokens += len(encoding.encode(message))
 
-    # $0.002 / 1K tokens
-    if pdf_mode:
-        res = await pdf_agent.acall(message, callbacks=[cl.AsyncLangchainCallbackHandler()])
-        cur_tokens += len(encoding.encode(res['answer']))
-    else:
-        res = await cl.make_async(search_agent)(message, callbacks=[cl.LangchainCallbackHandler()])
-        cur_tokens += len(encoding.encode(res['output']))
+        # $0.002 / 1K tokens
+        if pdf_mode:
+            res = await pdf_agent.acall(message, callbacks=[cl.AsyncLangchainCallbackHandler()])
+            cur_tokens += len(encoding.encode(res['answer']))
+        else:
+            res = await cl.make_async(search_agent)(message, callbacks=[cl.LangchainCallbackHandler()])
+            cur_tokens += len(encoding.encode(res['output']))
 
-    # Do any post processing here
-    await process_response(res)
+        # Do any post processing here
+        await process_response(res)
 
-    # Calculate token usage
-    cl.user_session.set("cur_tokens", cur_tokens)
-    print('DEBUG', cl.user_session.get("total_tokens"), cur_tokens)
-    total_tokens = cl.user_session.get("total_tokens") - cur_tokens
-    print('after message:', cl.user_session.get("cur_tokens"), 'tokens')
-    print('remaining tokens:', total_tokens)
-    
-    # User runs out of token credits
-    if total_tokens < 0:
+        # Calculate token usage
+        cl.user_session.set("cur_tokens", cur_tokens)
+        print('DEBUG', cl.user_session.get("total_tokens"), cur_tokens)
+        total_tokens = cl.user_session.get("total_tokens") - cur_tokens
+        print('after message:', cl.user_session.get("cur_tokens"), 'tokens')
+        print('remaining tokens:', total_tokens)
+        
+        # User runs out of token credits
+        if total_tokens < 5000:
+            await cl.Message(content="You have run out of credits...").send()
+            cl.user_session.set("pdf_agent", None)
+            cl.user_session.set("search_agent", None)
+    except:
         await cl.Message(content="You have run out of credits...").send()
-
 
 
 @cl.action_callback("pdf_mode")
