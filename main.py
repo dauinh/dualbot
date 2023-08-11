@@ -76,6 +76,7 @@ async def helloworld(request: Request):
     return response
 
 
+# NOTE: pay per session (chat window) and tokens
 @app.post("/charge")
 async def charge():
     """Send transaction to Pressingly Server
@@ -174,7 +175,6 @@ async def main(message: str):
         cur_tokens = cl.user_session.get("cur_tokens")
         if not cur_tokens:
             cur_tokens = 0
-        print("before message:", cur_tokens, "tokens")
 
         # Input $0.0015 / 1K tokens
         cur_tokens += len(encoding.encode(message))
@@ -196,13 +196,15 @@ async def main(message: str):
 
         # Calculate token usage
         cl.user_session.set("cur_tokens", cur_tokens)
+        if not cl.user_session.get("total_tokens"):
+            cl.user_session.set("total_tokens", 10**4)
+
         total_tokens = cl.user_session.get("total_tokens")
-        if total_tokens:
-            print("DEBUG", total_tokens, cur_tokens)
-            print("after message:", cl.user_session.get("cur_tokens"), "tokens")
-            total_tokens -= cur_tokens
-            cl.user_session.set("total_tokens", total_tokens)
-            print("remaining tokens:", total_tokens)
+        print("DEBUG", total_tokens, cur_tokens)
+        print("after message:", cl.user_session.get("cur_tokens"), "tokens")
+        total_tokens -= cur_tokens
+        cl.user_session.set("total_tokens", total_tokens)
+        print("remaining tokens:", total_tokens)
 
         # User runs out of token credits
         if total_tokens < 5000:
