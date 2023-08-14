@@ -34,7 +34,9 @@ async def serve(request: Request):
 
     response = HTMLResponse(content=html_template, status_code=200)
     auth_email = request.cookies.get("auth_email")
+    package = request.cookies.get("package")
     print("auth_email", auth_email)
+    print("package", package)
 
     chainlit_session_id = str(uuid.uuid4())
     response.set_cookie(
@@ -43,6 +45,7 @@ async def serve(request: Request):
     user_sessions[chainlit_session_id] = {
         "auth_email": auth_email,
         "total_tokens": 10**4,
+        "package": package,
     }
     return response
 
@@ -59,10 +62,10 @@ async def helloworld(request: Request):
         "redirect_uri": REDIRECT_URL,
         "code": auth_code,
     }
-    print("query params", myobj)
+    # print("query params", myobj)
     x = requests.post(url, json=myobj)
     response = x.json()
-    print(x.json())
+    # print(x.json())
     # id_token = response['id_token']
     access_token = "Bearer " + response["access_token"]
     # print(access_token)
@@ -126,6 +129,7 @@ import chainlit as cl
 
 from setup import search_agent
 from utils import create_pdf_agent, process_response
+from exceptions import *
 
 from pprint import pprint
 
@@ -134,45 +138,76 @@ import tiktoken
 encoding = tiktoken.get_encoding("cl100k_base")
 encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
-class AuthenticationError(Exception):
-    """Exception raised when user is not signed in
-    """
-    pass
-
 
 @cl.on_chat_start
 async def start():
     try:
         ### SIGN IN
         email = cl.user_session.get("auth_email")
-        if not email:
-            raise AuthenticationError
-        await cl.Message(content=f"Hello {email}").send()
+        # if not email:
+        #     raise AuthenticationError
+        await cl.Message(
+            content=f"**Welcome to Cactusdemocracy!** \
+                    \nHi {email}! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you."
+        ).send()
 
         ### PAYWALL
-
-        ### MAIN CHAT
-        # Always default to search mode
-        cl.user_session.set("pdf_mode", False)
-
-        # Sending an action button within a chatbot message
+        package = cl.user_session.get("package")
+        if not package:
+            raise SubscriptionError
         actions = [
             cl.Action(
-                name="pdf_mode",
+                name="package_month",
                 value="False",
-                label="PDF reader",
+                label="Monthly - $20",
+                description="Click me!",
+            ),
+            cl.Action(
+                name="package_day",
+                value="False",
+                label="1 day - $1",
+                description="Click me!",
+            ),
+            cl.Action(
+                name="package_min",
+                value="False",
+                label="15 mins - $0.10",
+                description="Click me!",
+            ),
+            cl.Action(
+                name="package_prompt",
+                value="False",
+                label="10 prompts - $0.50",
                 description="Click me!",
             ),
         ]
         cl.user_session.set("search_agent", search_agent)
 
         await cl.Message(
-            content=f"Press this button to switch to chat mode with PDF reader. Open a new chat to reset mode.\
-                    \nOtherwise, continue to chat for search mode.",
+            content="**Please choose the package that’s right for you**",
             actions=actions,
         ).send()
+
+        ### MAIN CHAT
+        # Always default to search mode
+        cl.user_session.set("pdf_mode", False)
+
+        # Sending an action button within a chatbot message
+        # actions = [
+        #     cl.Action(
+        #         name="pdf_mode",
+        #         value="False",
+        #         label="PDF reader",
+        #     ),
+        # ]
+        # cl.user_session.set("search_agent", search_agent)
+
+        # await cl.Message(
+        #     content=f"Press this button to switch to chat mode with PDF reader. Open a new chat to reset mode.\
+        #             \nOtherwise, continue to chat for search mode.",
+        #     actions=actions,
+        # ).send()
     except AuthenticationError:
-        print("Exception occurred: User is not authenticated")
         await cl.Message(
             content=f"**Welcome to Cactusdemocracy!** \
                     \nHi there! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you. \
