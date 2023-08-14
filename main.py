@@ -134,23 +134,34 @@ import tiktoken
 encoding = tiktoken.get_encoding("cl100k_base")
 encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
+class AuthenticationError(Exception):
+    """Exception raised when user is not signed in
+    """
+    pass
+
 
 @cl.on_chat_start
 async def start():
     try:
-        # Authentication flow
+        ### SIGN IN
         email = cl.user_session.get("auth_email")
-        if not email: raise Exception("User not signed in")
-        await cl.Message(
-            content=f"Hello {email}"
-        ).send()
+        if not email:
+            raise AuthenticationError
+        await cl.Message(content=f"Hello {email}").send()
+
+        ### PAYWALL
+
+        ### MAIN CHAT
         # Always default to search mode
         cl.user_session.set("pdf_mode", False)
 
         # Sending an action button within a chatbot message
         actions = [
             cl.Action(
-                name="pdf_mode", value="False", label="PDF reader", description="Click me!"
+                name="pdf_mode",
+                value="False",
+                label="PDF reader",
+                description="Click me!",
             ),
         ]
         cl.user_session.set("search_agent", search_agent)
@@ -160,7 +171,8 @@ async def start():
                     \nOtherwise, continue to chat for search mode.",
             actions=actions,
         ).send()
-    except:
+    except AuthenticationError:
+        print("Exception occurred: User is not authenticated")
         await cl.Message(
             content=f"**Welcome to Cactusdemocracy!** \
                     \nHi there! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you. \
@@ -168,7 +180,7 @@ async def start():
         ).send()
 
 
-# NOTE: 
+# NOTE:
 # MODEL1
 # After message, print amount charge + explanation + transaction ID
 # ==> user exp, flexible pricing model
