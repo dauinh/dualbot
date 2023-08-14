@@ -137,30 +137,35 @@ encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
 
 @cl.on_chat_start
 async def start():
-    # Always default to search mode
-    cl.user_session.set("pdf_mode", False)
+    try:
+        # Authentication flow
+        email = cl.user_session.get("auth_email")
+        if not email: raise Exception("User not signed in")
+        await cl.Message(
+            content=f"Hello {email}"
+        ).send()
+        # Always default to search mode
+        cl.user_session.set("pdf_mode", False)
 
-    # Sending an action button within a chatbot message
-    actions = [
-        cl.Action(
-            name="pdf_mode", value="False", label="PDF reader", description="Click me!"
-        ),
-    ]
-    cl.user_session.set("search_agent", search_agent)
+        # Sending an action button within a chatbot message
+        actions = [
+            cl.Action(
+                name="pdf_mode", value="False", label="PDF reader", description="Click me!"
+            ),
+        ]
+        cl.user_session.set("search_agent", search_agent)
 
-    email = cl.user_session.get("auth_email")
-    if email:
-        login_msg = f"Hello {email}"
-    else:
-        login_msg = f"[Sign in with Pressingly]({LOGIN_URL}) \
-                    \nHello New User!"
-
-    await cl.Message(
-        content=f"{login_msg} \
-                    \nPress this button to switch to chat mode with PDF reader. Open a new chat to reset mode.\
+        await cl.Message(
+            content=f"Press this button to switch to chat mode with PDF reader. Open a new chat to reset mode.\
                     \nOtherwise, continue to chat for search mode.",
-        actions=actions,
-    ).send()
+            actions=actions,
+        ).send()
+    except:
+        await cl.Message(
+            content=f"**Welcome to Cactusdemocracy!** \
+                    \nHi there! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you. \
+                    \n[Sign in to continue]({LOGIN_URL})"
+        ).send()
 
 
 # NOTE: 
@@ -243,6 +248,8 @@ async def main(message: str):
             content="You have run out of credits for current session \
                     \nOpen new chat for another session"
         ).send()
+    except TypeError:
+        await start()
 
 
 @cl.action_callback("pdf_mode")
