@@ -4,6 +4,7 @@ class AuthenticationError(Exception):
     Attributes:
         message -- explanation of the error
     """
+
     def __init__(self):
         self.message = "User is not authenticated"
         super().__init__(self.message)
@@ -15,6 +16,7 @@ class SubscriptionError(Exception):
     Attributes:
         message -- explanation of the error
     """
+
     def __init__(self):
         self.message = "No package selected"
         super().__init__(self.message)

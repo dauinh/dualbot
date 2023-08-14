@@ -44,7 +44,7 @@ async def serve(request: Request):
     )
     user_sessions[chainlit_session_id] = {
         "auth_email": auth_email,
-        "total_tokens": 0,
+        "total_cost": 0,
         "package": package,
     }
     return response
@@ -80,46 +80,17 @@ async def helloworld(request: Request):
 
 
 # NOTE: pay per session (chat window) and tokens
-@app.post("/charge")
-async def charge():
+@app.get("/charge")
+async def charge(request: Request):
     """Send transaction to Pressingly Server
 
     1. send user info to Pressingly
     2. receives credit token -> save to user session
     """
-    pass
-
-
-@app.get("/testing")
-async def testing(request: Request):
     chainlit_session_id = request.cookies.get("chainlit-session")
-    total_tokens = user_sessions[chainlit_session_id]["total_tokens"]
-    print("send to Pressingly:", total_tokens, "tokens")
+    total_cost = user_sessions[chainlit_session_id]["total_cost"]
+    print("send to Pressingly: $", total_cost)
     return
-
-
-@app.get("/payment")
-async def payment(request: Request):
-    """Receives payment complete status from Pressingly Server"""
-    # print(request._query_params)
-    auth_code = request._query_params["code"]
-    url = "https://pressingly-account.onrender.com/oauth/token"
-    payload = {
-        "grant_type": "authorization_code",
-        "client_id": OIDC_CLIENT_ID,
-        "client_secret": OIDC_CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URL,
-        "code": auth_code,
-    }
-    # print("query params", payload)
-    x = requests.post(url, json=payload)
-    response = x.json()
-    # print(x.json())
-
-    #
-
-    response = RedirectResponse("/")
-    return response
 
 
 chainlit_routes.append(wildcard_route)
@@ -131,7 +102,6 @@ from setup import search_agent
 from utils import create_pdf_agent, process_response
 from exceptions import *
 
-import fontstyle
 import tiktoken
 
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -182,31 +152,18 @@ async def start():
     except SubscriptionError:
         actions = [
             cl.Action(
-                name="package_month",
+                name="package_word",
                 value="False",
-                label="Monthly - $20",
-                description="Click me!",
-            ),
-            cl.Action(
-                name="package_day",
-                value="False",
-                label="1 day - $1",
-                description="Click me!",
+                label="Word usage - $0.002/word",
+                description="Include words from questions and answers",
             ),
             cl.Action(
                 name="package_min",
                 value="False",
                 label="15 mins - $0.10",
-                description="Click me!",
-            ),
-            cl.Action(
-                name="package_prompt",
-                value="False",
-                label="10 prompts - $0.50",
-                description="Click me!",
+                description="Auto expire after 15 mins",
             ),
         ]
-        cl.user_session.set("search_agent", search_agent)
 
         await cl.Message(
             content="**Please choose the package that’s right for you**",
@@ -214,12 +171,6 @@ async def start():
         ).send()
 
 
-# NOTE:
-# MODEL1
-# After message, print amount charge + explanation + transaction ID
-# ==> user exp, flexible pricing model
-# MODEL2
-# 15-min pass ~ $1 --> "will be charge for next 15 mins"
 def charge(credit_token, amount, currency):
     """Send to Pressingly Payment"""
     pass
@@ -230,7 +181,7 @@ def issue_credit_token(org_id, return_url, cancel_url):
     Successful payment --> return_url (current implementation)
     Unsuccessful payment --> cancel_url (coming soon)
 
-    return_url - session/user ID ()
+    return_url -- session/user ID
     """
     pass
 
@@ -248,39 +199,42 @@ async def main(message: str):
         pdf_mode = cl.user_session.get("pdf_mode")
 
         # Embedding model: $0.0001 / 1K tokens
-        total_tokens = cl.user_session.get("total_tokens")
-        if not total_tokens:
-            total_tokens = 0
+        total_cost = cl.user_session.get("total_cost")
 
         # Input $0.0015 / 1K tokens
-        total_tokens += len(encoding.encode(message))
+        mess_len = len(message)
 
         # $0.002 / 1K tokens
         if pdf_mode:
             res = await pdf_agent.acall(
                 message, callbacks=[cl.AsyncLangchainCallbackHandler()]
             )
-            total_tokens += len(encoding.encode(res["answer"]))
+            mess_len += len(res["answer"].split(" "))
         else:
             res = await cl.make_async(search_agent)(
                 message, callbacks=[cl.LangchainCallbackHandler()]
             )
-            total_tokens += len(encoding.encode(res["output"]))
+            mess_len += len(res["output"].split(" "))
 
-        # Use Pressing Payment API
+        # Calculate usage
+        mess_cost = 0.002 * (mess_len / 1000)
+        total_cost += mess_cost
+        cl.user_session.set("total_cost", total_cost)
+        print('each message', mess_len, mess_cost)
+        print('total cost', total_cost)
+        # amount = mess_cost
+        
+        # Pressing Payment API
         # charge(credit_token, amount, currency)
 
-        # Calculate token usage
-        print("after message:", cl.user_session.get("total_tokens"), "tokens")
-        cl.user_session.set("total_tokens", total_tokens)
-
-        # User runs out of token credits
-        if total_tokens > 10000:
+        # User reaches limit of subscription package
+        if total_cost > 0.6:
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
 
+
         # Do any post processing here
-        await process_response(res, total_tokens)
+        await process_response(res, total_cost, mess_len)
     except AttributeError:
         await cl.Message(
             content="You have run out of credits for current session \
@@ -290,7 +244,8 @@ async def main(message: str):
         await start()
 
 
-### Handling buttons logic
+"""Handle buttons
+"""
 @cl.action_callback("pdf_mode")
 async def on_action(action):
     # On button click, change to PDF reader mode
@@ -301,22 +256,7 @@ async def on_action(action):
     await action.remove()
 
     pdf_agent, tokens = await create_pdf_agent()
-    cl.user_session.set("total_tokens", tokens)
     cl.user_session.set("pdf_agent", pdf_agent)
-
-
-@cl.action_callback("package_month")
-async def on_action(action):
-    await cl.Message(content="One month package selected!").send()
-    cl.user_session.set("package", "month")
-    await start()
-
-
-@cl.action_callback("package_day")
-async def on_action(action):
-    await cl.Message(content="One day package selected!").send()
-    cl.user_session.set("package", "day")
-    await start()
 
 
 @cl.action_callback("package_min")
@@ -326,8 +266,9 @@ async def on_action(action):
     await start()
 
 
-@cl.action_callback("package_prompt")
+@cl.action_callback("package_word")
 async def on_action(action):
-    await cl.Message(content="10-prompt package selected!").send()
-    cl.user_session.set("package", "prompt")
+    await cl.Message(content="Word usage package selected!").send()
+    cl.user_session.set("package", "word")
+    cl.user_session.set("total_cost", 0.5)
     await start()
