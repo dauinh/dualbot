@@ -91,7 +91,7 @@ async def create_pdf_agent():
     return agent, tokens
 
 
-async def process_response(res):
+async def process_response(res, tokens):
     """Include sources in bot's response"""
     pdf_mode = cl.user_session.get("pdf_mode")
     print("after session", pdf_mode)
@@ -128,5 +128,7 @@ async def process_response(res):
             answer += f"\nSources: {', '.join(found_sources)}"
         else:
             answer += "\nNo sources found"
+
+    answer += f"\nCurrent token usage: {tokens}"
 
     await cl.Message(content=answer, elements=source_elements).send()

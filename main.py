@@ -44,7 +44,7 @@ async def serve(request: Request):
     )
     user_sessions[chainlit_session_id] = {
         "auth_email": auth_email,
-        "total_tokens": 10**4,
+        "total_tokens": 0,
         "package": package,
     }
     return response
@@ -131,8 +131,7 @@ from setup import search_agent
 from utils import create_pdf_agent, process_response
 from exceptions import *
 
-from pprint import pprint
-
+import fontstyle
 import tiktoken
 
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -155,6 +154,32 @@ async def start():
         package = cl.user_session.get("package")
         if not package:
             raise SubscriptionError
+
+        ### MAIN CHAT
+        # Always default to search mode
+        cl.user_session.set("pdf_mode", False)
+
+        actions = [
+            cl.Action(
+                name="pdf_mode",
+                value="False",
+                label="PDF reader",
+            ),
+        ]
+        cl.user_session.set("search_agent", search_agent)
+
+        await cl.Message(
+            content=f"Press this button to switch to chat mode with PDF reader. Open a new chat to reset mode.\
+                    \nOtherwise, continue to chat for search mode.",
+            actions=actions,
+        ).send()
+    except AuthenticationError:
+        await cl.Message(
+            content=f"**Welcome to Cactusdemocracy!** \
+                    \nHi there! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you. \
+                    \n[Sign in to continue]({LOGIN_URL})"
+        ).send()
+    except SubscriptionError:
         actions = [
             cl.Action(
                 name="package_month",
@@ -186,32 +211,6 @@ async def start():
         await cl.Message(
             content="**Please choose the package that’s right for you**",
             actions=actions,
-        ).send()
-
-        ### MAIN CHAT
-        # Always default to search mode
-        cl.user_session.set("pdf_mode", False)
-
-        # Sending an action button within a chatbot message
-        # actions = [
-        #     cl.Action(
-        #         name="pdf_mode",
-        #         value="False",
-        #         label="PDF reader",
-        #     ),
-        # ]
-        # cl.user_session.set("search_agent", search_agent)
-
-        # await cl.Message(
-        #     content=f"Press this button to switch to chat mode with PDF reader. Open a new chat to reset mode.\
-        #             \nOtherwise, continue to chat for search mode.",
-        #     actions=actions,
-        # ).send()
-    except AuthenticationError:
-        await cl.Message(
-            content=f"**Welcome to Cactusdemocracy!** \
-                    \nHi there! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you. \
-                    \n[Sign in to continue]({LOGIN_URL})"
         ).send()
 
 
@@ -249,47 +248,39 @@ async def main(message: str):
         pdf_mode = cl.user_session.get("pdf_mode")
 
         # Embedding model: $0.0001 / 1K tokens
-        cur_tokens = cl.user_session.get("cur_tokens")
-        if not cur_tokens:
-            cur_tokens = 0
+        total_tokens = cl.user_session.get("total_tokens")
+        if not total_tokens:
+            total_tokens = 0
 
         # Input $0.0015 / 1K tokens
-        cur_tokens += len(encoding.encode(message))
+        total_tokens += len(encoding.encode(message))
 
         # $0.002 / 1K tokens
         if pdf_mode:
             res = await pdf_agent.acall(
                 message, callbacks=[cl.AsyncLangchainCallbackHandler()]
             )
-            cur_tokens += len(encoding.encode(res["answer"]))
+            total_tokens += len(encoding.encode(res["answer"]))
         else:
             res = await cl.make_async(search_agent)(
                 message, callbacks=[cl.LangchainCallbackHandler()]
             )
-            cur_tokens += len(encoding.encode(res["output"]))
+            total_tokens += len(encoding.encode(res["output"]))
 
         # Use Pressing Payment API
         # charge(credit_token, amount, currency)
 
-        # Do any post processing here
-        await process_response(res)
-
         # Calculate token usage
-        cl.user_session.set("cur_tokens", cur_tokens)
-        if not cl.user_session.get("total_tokens"):
-            cl.user_session.set("total_tokens", 10**4)
-
-        total_tokens = cl.user_session.get("total_tokens")
-        print("DEBUG", total_tokens, cur_tokens)
-        print("after message:", cl.user_session.get("cur_tokens"), "tokens")
-        total_tokens -= cur_tokens
+        print("after message:", cl.user_session.get("total_tokens"), "tokens")
         cl.user_session.set("total_tokens", total_tokens)
-        print("remaining tokens:", total_tokens)
 
         # User runs out of token credits
-        if total_tokens < 5000:
+        if total_tokens > 10000:
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
+
+        # Do any post processing here
+        await process_response(res, total_tokens)
     except AttributeError:
         await cl.Message(
             content="You have run out of credits for current session \
@@ -299,6 +290,7 @@ async def main(message: str):
         await start()
 
 
+### Handling buttons logic
 @cl.action_callback("pdf_mode")
 async def on_action(action):
     # On button click, change to PDF reader mode
@@ -309,5 +301,33 @@ async def on_action(action):
     await action.remove()
 
     pdf_agent, tokens = await create_pdf_agent()
-    cl.user_session.set("cur_tokens", tokens)
+    cl.user_session.set("total_tokens", tokens)
     cl.user_session.set("pdf_agent", pdf_agent)
+
+
+@cl.action_callback("package_month")
+async def on_action(action):
+    await cl.Message(content="One month package selected!").send()
+    cl.user_session.set("package", "month")
+    await start()
+
+
+@cl.action_callback("package_day")
+async def on_action(action):
+    await cl.Message(content="One day package selected!").send()
+    cl.user_session.set("package", "day")
+    await start()
+
+
+@cl.action_callback("package_min")
+async def on_action(action):
+    await cl.Message(content="15-min package selected!").send()
+    cl.user_session.set("package", "min")
+    await start()
+
+
+@cl.action_callback("package_prompt")
+async def on_action(action):
+    await cl.Message(content="10-prompt package selected!").send()
+    cl.user_session.set("package", "prompt")
+    await start()
