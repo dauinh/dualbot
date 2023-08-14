@@ -163,6 +163,31 @@ async def start():
     ).send()
 
 
+# NOTE: 
+# MODEL1
+# After message, print amount charge + explanation + transaction ID
+# ==> user exp, flexible pricing model
+# MODEL2
+# 15-min pass ~ $1 --> "will be charge for next 15 mins"
+def charge(credit_token, amount, currency):
+    """Send to Pressingly Payment"""
+    pass
+
+
+def issue_credit_token(org_id, return_url, cancel_url):
+    """
+    Successful payment --> return_url (current implementation)
+    Unsuccessful payment --> cancel_url (coming soon)
+
+    return_url - session/user ID ()
+    """
+    pass
+
+
+# NOTE: implement paywall for each invalid credit token
+# User clicks on paywall --> redirect to Pressingly to issue credit token
+# --> save credit token to user session
+# On each message, check for credit token, if not show paywall
 @cl.on_message
 async def main(message: str):
     try:
@@ -190,6 +215,9 @@ async def main(message: str):
                 message, callbacks=[cl.LangchainCallbackHandler()]
             )
             cur_tokens += len(encoding.encode(res["output"]))
+
+        # Use Pressing Payment API
+        # charge(credit_token, amount, currency)
 
         # Do any post processing here
         await process_response(res)
