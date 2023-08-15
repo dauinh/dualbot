@@ -202,6 +202,7 @@ async def main(message: str):
             res = await pdf_agent.acall(
                 message, callbacks=[cl.AsyncLangchainCallbackHandler()]
             )
+            total_cost += 0.5
             mess_len += len(res["answer"].split(" "))
         else:
             search_agent = cl.user_session.get("search_agent")
@@ -265,5 +266,5 @@ async def on_action(action):
 async def on_action(action):
     await cl.Message(content="Word usage package selected!").send()
     cl.user_session.set("package", "word")
-    cl.user_session.set("total_cost", 0.5)
+    cl.user_session.set("total_cost", 0)
     await start()
