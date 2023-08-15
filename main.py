@@ -102,19 +102,14 @@ from setup import search_agent
 from utils import create_pdf_agent, process_response
 from exceptions import *
 
-import tiktoken
-
-encoding = tiktoken.get_encoding("cl100k_base")
-encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
-
 
 @cl.on_chat_start
 async def start():
     try:
         ### SIGN IN
         email = cl.user_session.get("auth_email")
-        # if not email:
-        #     raise AuthenticationError
+        if not email:
+            raise AuthenticationError
         await cl.Message(
             content=f"**Welcome to Cactusdemocracy!** \
                     \nHi {email}! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you."
@@ -193,9 +188,6 @@ def issue_credit_token(org_id, return_url, cancel_url):
 @cl.on_message
 async def main(message: str):
     try:
-        # Retrieve the chain from the user session
-        search_agent = cl.user_session.get("search_agent")
-        pdf_agent = cl.user_session.get("pdf_agent")
         pdf_mode = cl.user_session.get("pdf_mode")
 
         # Embedding model: $0.0001 / 1K tokens
@@ -206,11 +198,13 @@ async def main(message: str):
 
         # $0.002 / 1K tokens
         if pdf_mode:
+            pdf_agent = cl.user_session.get("pdf_agent")
             res = await pdf_agent.acall(
                 message, callbacks=[cl.AsyncLangchainCallbackHandler()]
             )
             mess_len += len(res["answer"].split(" "))
         else:
+            search_agent = cl.user_session.get("search_agent")
             res = await cl.make_async(search_agent)(
                 message, callbacks=[cl.LangchainCallbackHandler()]
             )
@@ -220,10 +214,10 @@ async def main(message: str):
         mess_cost = 0.002 * (mess_len / 1000)
         total_cost += mess_cost
         cl.user_session.set("total_cost", total_cost)
-        print('each message', mess_len, mess_cost)
-        print('total cost', total_cost)
+        print("each message", mess_len, mess_cost)
+        print("total cost", total_cost)
         # amount = mess_cost
-        
+
         # Pressing Payment API
         # charge(credit_token, amount, currency)
 
@@ -231,7 +225,6 @@ async def main(message: str):
         if total_cost > 0.6:
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
-
 
         # Do any post processing here
         await process_response(res, total_cost, mess_len)
@@ -246,6 +239,8 @@ async def main(message: str):
 
 """Handle buttons
 """
+
+
 @cl.action_callback("pdf_mode")
 async def on_action(action):
     # On button click, change to PDF reader mode
