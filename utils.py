@@ -91,12 +91,15 @@ async def create_pdf_agent():
     return agent, tokens
 
 
-async def process_response(res):
+async def process_response(res, total_cost, mess_len):
     """Include sources in bot's response"""
     pdf_mode = cl.user_session.get("pdf_mode")
-    print("after session", pdf_mode)
     if not pdf_mode:
-        await cl.Message(content=res["output"]).send()
+        await cl.Message(
+            content=f"{res['output']} \
+                    \n*Cost: ${round(total_cost, 6)}* \
+                    \n*Price breakdown: $0.002 x {mess_len} words (question and answer)*"
+        ).send()
         return
 
     answer = res["answer"]
@@ -128,5 +131,8 @@ async def process_response(res):
             answer += f"\nSources: {', '.join(found_sources)}"
         else:
             answer += "\nNo sources found"
+
+    answer += f"\n*Cost: ${round(total_cost, 6)}* \
+                \n*Price breakdown: $0.5 x 1 file + $0.002 x {mess_len} words (question and answer)*"
 
     await cl.Message(content=answer, elements=source_elements).send()

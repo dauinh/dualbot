@@ -34,7 +34,9 @@ async def serve(request: Request):
 
     response = HTMLResponse(content=html_template, status_code=200)
     auth_email = request.cookies.get("auth_email")
+    package = request.cookies.get("package")
     print("auth_email", auth_email)
+    print("package", package)
 
     chainlit_session_id = str(uuid.uuid4())
     response.set_cookie(
@@ -42,7 +44,8 @@ async def serve(request: Request):
     )
     user_sessions[chainlit_session_id] = {
         "auth_email": auth_email,
-        "total_tokens": 10**4,
+        "total_cost": 0,
+        "package": package,
     }
     return response
 
@@ -59,10 +62,10 @@ async def helloworld(request: Request):
         "redirect_uri": REDIRECT_URL,
         "code": auth_code,
     }
-    print("query params", myobj)
+    # print("query params", myobj)
     x = requests.post(url, json=myobj)
     response = x.json()
-    print(x.json())
+    # print(x.json())
     # id_token = response['id_token']
     access_token = "Bearer " + response["access_token"]
     # print(access_token)
@@ -77,46 +80,17 @@ async def helloworld(request: Request):
 
 
 # NOTE: pay per session (chat window) and tokens
-@app.post("/charge")
-async def charge():
+@app.get("/charge")
+async def charge(request: Request):
     """Send transaction to Pressingly Server
 
     1. send user info to Pressingly
     2. receives credit token -> save to user session
     """
-    pass
-
-
-@app.get("/testing")
-async def testing(request: Request):
     chainlit_session_id = request.cookies.get("chainlit-session")
-    total_tokens = user_sessions[chainlit_session_id]["total_tokens"]
-    print("send to Pressingly:", total_tokens, "tokens")
+    total_cost = user_sessions[chainlit_session_id]["total_cost"]
+    print("send to Pressingly: $", total_cost)
     return
-
-
-@app.get("/payment")
-async def payment(request: Request):
-    """Receives payment complete status from Pressingly Server"""
-    # print(request._query_params)
-    auth_code = request._query_params["code"]
-    url = "https://pressingly-account.onrender.com/oauth/token"
-    payload = {
-        "grant_type": "authorization_code",
-        "client_id": OIDC_CLIENT_ID,
-        "client_secret": OIDC_CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URL,
-        "code": auth_code,
-    }
-    # print("query params", payload)
-    x = requests.post(url, json=payload)
-    response = x.json()
-    # print(x.json())
-
-    #
-
-    response = RedirectResponse("/")
-    return response
 
 
 chainlit_routes.append(wildcard_route)
@@ -126,18 +100,7 @@ import chainlit as cl
 
 from setup import search_agent
 from utils import create_pdf_agent, process_response
-
-from pprint import pprint
-
-import tiktoken
-
-encoding = tiktoken.get_encoding("cl100k_base")
-encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
-
-class AuthenticationError(Exception):
-    """Exception raised when user is not signed in
-    """
-    pass
+from exceptions import *
 
 
 @cl.on_chat_start
@@ -147,21 +110,25 @@ async def start():
         email = cl.user_session.get("auth_email")
         if not email:
             raise AuthenticationError
-        await cl.Message(content=f"Hello {email}").send()
+        await cl.Message(
+            content=f"**Welcome to Cactusdemocracy!** \
+                    \nHi {email}! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you."
+        ).send()
 
         ### PAYWALL
+        package = cl.user_session.get("package")
+        if not package:
+            raise SubscriptionError
 
         ### MAIN CHAT
         # Always default to search mode
         cl.user_session.set("pdf_mode", False)
 
-        # Sending an action button within a chatbot message
         actions = [
             cl.Action(
                 name="pdf_mode",
                 value="False",
                 label="PDF reader",
-                description="Click me!",
             ),
         ]
         cl.user_session.set("search_agent", search_agent)
@@ -172,20 +139,33 @@ async def start():
             actions=actions,
         ).send()
     except AuthenticationError:
-        print("Exception occurred: User is not authenticated")
         await cl.Message(
             content=f"**Welcome to Cactusdemocracy!** \
                     \nHi there! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you. \
                     \n[Sign in to continue]({LOGIN_URL})"
         ).send()
+    except SubscriptionError:
+        actions = [
+            cl.Action(
+                name="package_word",
+                value="False",
+                label="Word usage - $0.002/word",
+                description="Include words from questions and answers",
+            ),
+            cl.Action(
+                name="package_min",
+                value="False",
+                label="15 mins - $0.10",
+                description="Auto expire after 15 mins",
+            ),
+        ]
+
+        await cl.Message(
+            content="**Please choose the package that’s right for you**",
+            actions=actions,
+        ).send()
 
 
-# NOTE:
-# MODEL1
-# After message, print amount charge + explanation + transaction ID
-# ==> user exp, flexible pricing model
-# MODEL2
-# 15-min pass ~ $1 --> "will be charge for next 15 mins"
 def charge(credit_token, amount, currency):
     """Send to Pressingly Payment"""
     pass
@@ -196,7 +176,7 @@ def issue_credit_token(org_id, return_url, cancel_url):
     Successful payment --> return_url (current implementation)
     Unsuccessful payment --> cancel_url (coming soon)
 
-    return_url - session/user ID ()
+    return_url -- session/user ID
     """
     pass
 
@@ -208,53 +188,46 @@ def issue_credit_token(org_id, return_url, cancel_url):
 @cl.on_message
 async def main(message: str):
     try:
-        # Retrieve the chain from the user session
-        search_agent = cl.user_session.get("search_agent")
-        pdf_agent = cl.user_session.get("pdf_agent")
         pdf_mode = cl.user_session.get("pdf_mode")
 
         # Embedding model: $0.0001 / 1K tokens
-        cur_tokens = cl.user_session.get("cur_tokens")
-        if not cur_tokens:
-            cur_tokens = 0
+        total_cost = cl.user_session.get("total_cost")
 
         # Input $0.0015 / 1K tokens
-        cur_tokens += len(encoding.encode(message))
+        mess_len = len(message)
 
         # $0.002 / 1K tokens
         if pdf_mode:
+            pdf_agent = cl.user_session.get("pdf_agent")
             res = await pdf_agent.acall(
                 message, callbacks=[cl.AsyncLangchainCallbackHandler()]
             )
-            cur_tokens += len(encoding.encode(res["answer"]))
+            mess_len += len(res["answer"].split(" "))
         else:
+            search_agent = cl.user_session.get("search_agent")
             res = await cl.make_async(search_agent)(
                 message, callbacks=[cl.LangchainCallbackHandler()]
             )
-            cur_tokens += len(encoding.encode(res["output"]))
+            mess_len += len(res["output"].split(" "))
 
-        # Use Pressing Payment API
+        # Calculate usage
+        mess_cost = 0.002 * (mess_len / 1000)
+        total_cost += mess_cost
+        cl.user_session.set("total_cost", total_cost)
+        print("each message", mess_len, mess_cost)
+        print("total cost", total_cost)
+        # amount = mess_cost
+
+        # Pressing Payment API
         # charge(credit_token, amount, currency)
 
-        # Do any post processing here
-        await process_response(res)
-
-        # Calculate token usage
-        cl.user_session.set("cur_tokens", cur_tokens)
-        if not cl.user_session.get("total_tokens"):
-            cl.user_session.set("total_tokens", 10**4)
-
-        total_tokens = cl.user_session.get("total_tokens")
-        print("DEBUG", total_tokens, cur_tokens)
-        print("after message:", cl.user_session.get("cur_tokens"), "tokens")
-        total_tokens -= cur_tokens
-        cl.user_session.set("total_tokens", total_tokens)
-        print("remaining tokens:", total_tokens)
-
-        # User runs out of token credits
-        if total_tokens < 5000:
+        # User reaches limit of subscription package
+        if total_cost > 0.6:
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
+
+        # Do any post processing here
+        await process_response(res, total_cost, mess_len)
     except AttributeError:
         await cl.Message(
             content="You have run out of credits for current session \
@@ -262,6 +235,10 @@ async def main(message: str):
         ).send()
     except TypeError:
         await start()
+
+
+"""Handle buttons
+"""
 
 
 @cl.action_callback("pdf_mode")
@@ -274,5 +251,19 @@ async def on_action(action):
     await action.remove()
 
     pdf_agent, tokens = await create_pdf_agent()
-    cl.user_session.set("cur_tokens", tokens)
     cl.user_session.set("pdf_agent", pdf_agent)
+
+
+@cl.action_callback("package_min")
+async def on_action(action):
+    await cl.Message(content="15-min package selected!").send()
+    cl.user_session.set("package", "min")
+    await start()
+
+
+@cl.action_callback("package_word")
+async def on_action(action):
+    await cl.Message(content="Word usage package selected!").send()
+    cl.user_session.set("package", "word")
+    cl.user_session.set("total_cost", 0.5)
+    await start()
