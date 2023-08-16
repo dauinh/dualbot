@@ -91,17 +91,28 @@ async def create_pdf_agent():
     return agent, tokens
 
 
-async def process_response(res, total_cost, mess_len):
-    """Include sources in bot's response"""
+async def process_response(res, data):
+    """Process GPT model response to message
+
+    Args:
+        res (dict): GPT model output
+        data (dict): info about current usage --> display cost for user
+    """
     pdf_mode = cl.user_session.get("pdf_mode")
+
+    # Process response for search mode
     if not pdf_mode:
-        await cl.Message(
-            content=f"{res['output']} \
-                    \n*Cost: ${round(total_cost, 6)}* \
-                    \n*Price breakdown: $0.002 x {mess_len} words (question and answer)*"
-        ).send()
+        if data['package'] == "min":
+            answer = f"{res['output']} \
+                        \n*Remaining time: {15 - data['usage_time']} mins*"
+        elif data['package'] == "word":
+            answer = f"{res['output']} \
+                        \n*Cost: ${round(data['total_cost'], 6)}* \
+                        \n*Price breakdown: $0.002 x {data['message_length']} words (question and answer)*"
+        await cl.Message(content=answer).send()
         return
 
+    # Process response for PDF reader mode
     answer = res["answer"]
     sources = res["sources"].strip()
     source_elements = []
@@ -132,7 +143,12 @@ async def process_response(res, total_cost, mess_len):
         else:
             answer += "\nNo sources found"
 
-    answer += f"\n*Cost: ${round(total_cost, 6)}* \
-                \n*Price breakdown: $0.5 x 1 file + $0.002 x {mess_len} words (question and answer)*"
+
+    if data['package'] == "min":
+        answer += f"{res['output']} \
+                    \n*Used time: {data['usage_time']}*"
+    elif data['package'] == "word":
+        answer += f"\n*Cost: ${round(data['total_cost'], 6)}* \
+                    \n*Price breakdown: $0.5 x 1 file + $0.002 x {data['message_length']} words (question and answer)*"
 
     await cl.Message(content=answer, elements=source_elements).send()

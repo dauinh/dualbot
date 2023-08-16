@@ -97,11 +97,12 @@ chainlit_routes.append(wildcard_route)
 
 
 import chainlit as cl
+from chainlit.input_widget import Select
 
+from datetime import datetime
 from setup import search_agent
 from utils import create_pdf_agent, process_response
 from exceptions import *
-from chainlit.input_widget import Select
 
 
 
@@ -162,13 +163,13 @@ async def start():
             cl.Action(
                 name="package_word",
                 value="False",
-                label="Word usage - $0.002/word",
+                label="Pay per word - $0.002/word",
                 description="Include words from questions and answers",
             ),
             cl.Action(
                 name="package_min",
                 value="False",
-                label="15 mins - $0.10",
+                label="Pay per 15-min - $0.10",
                 description="Auto expire after 15 mins",
             ),
         ]
@@ -202,46 +203,63 @@ def issue_credit_token(org_id, return_url, cancel_url):
 async def main(message: str):
     try:
         pdf_mode = cl.user_session.get("pdf_mode")
+        package = cl.user_session.get("package")
 
-        # Embedding model: $0.0001 / 1K tokens
+        # 15-min package: check time
+        start = cl.user_session.get("package_start_time")
+        cur = datetime.now()
+        # Convert to mins
+        start_min = start.hour * 60 + start.minute
+        cur_min = cur.hour * 60 + cur.minute
+        print('start time', start)
+        print('current time', cur)
+        usage_time = cur_min - start_min
+        
+        # Word usage package: keep word count
         total_cost = cl.user_session.get("total_cost")
+        message_length = len(message)
 
-        # Input $0.0015 / 1K tokens
-        mess_len = len(message)
-
-        # $0.002 / 1K tokens
         if pdf_mode:
             pdf_agent = cl.user_session.get("pdf_agent")
             res = await pdf_agent.acall(
                 message, callbacks=[cl.AsyncLangchainCallbackHandler()]
             )
             total_cost += 0.5
-            mess_len += len(res["answer"].split(" "))
+            message_length += len(res["answer"].split(" "))
         else:
             search_agent = cl.user_session.get("search_agent")
             res = await cl.make_async(search_agent)(
                 message, callbacks=[cl.LangchainCallbackHandler()]
             )
-            mess_len += len(res["output"].split(" "))
+            message_length += len(res["output"].split(" "))
 
-        # Calculate usage
-        mess_cost = 0.002 * (mess_len / 1000)
+        # Calculate cost
+        mess_cost = 0.002 * (message_length / 1000)
         total_cost += mess_cost
         cl.user_session.set("total_cost", total_cost)
-        print("each message", mess_len, mess_cost)
+        print("each message", message_length, mess_cost)
         print("total cost", total_cost)
         # amount = mess_cost
 
-        # Pressing Payment API
-        # charge(credit_token, amount, currency)
-
         # User reaches limit of subscription package
-        if total_cost > 0.6:
+        if (package == "word" and total_cost > 0.6) or \
+            (package == "min" and usage_time > 15):
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
 
+        package_info = {
+            "package": package,
+            "total_cost": total_cost,
+            "message_length": message_length,
+            "usage_time": usage_time,
+        }
+
         # Do any post processing here
-        await process_response(res, total_cost, mess_len)
+        await process_response(res, package_info)
+
+        # Pressing Payment API
+        # charge(credit_token, amount, currency)
+        
     except AttributeError:
         await cl.Message(
             content="You have run out of credits for current session \
@@ -253,8 +271,6 @@ async def main(message: str):
 
 """Handle buttons
 """
-
-
 @cl.action_callback("pdf_mode")
 async def on_action(action):
     # On button click, change to PDF reader mode
@@ -272,6 +288,8 @@ async def on_action(action):
 async def on_action(action):
     await cl.Message(content="15-min package selected!").send()
     cl.user_session.set("package", "min")
+    cl.user_session.set("package_start_time", datetime.now())
+    cl.user_session.set("total_cost", 0)
     await start()
 
 
@@ -279,5 +297,6 @@ async def on_action(action):
 async def on_action(action):
     await cl.Message(content="Word usage package selected!").send()
     cl.user_session.set("package", "word")
+    cl.user_session.set("package_start_time", datetime.now())
     cl.user_session.set("total_cost", 0)
     await start()
