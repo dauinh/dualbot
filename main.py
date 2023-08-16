@@ -101,6 +101,8 @@ import chainlit as cl
 from setup import search_agent
 from utils import create_pdf_agent, process_response
 from exceptions import *
+from chainlit.input_widget import Select
+
 
 
 @cl.on_chat_start
@@ -108,8 +110,8 @@ async def start():
     try:
         ### SIGN IN
         email = cl.user_session.get("auth_email")
-        if not email:
-            raise AuthenticationError
+        # if not email:
+        #     raise AuthenticationError
         await cl.Message(
             content=f"**Welcome to Cactusdemocracy!** \
                     \nHi {email}! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you."
@@ -122,6 +124,17 @@ async def start():
 
         ### MAIN CHAT
         # Always default to search mode
+        settings = await cl.ChatSettings(
+            [
+                Select(
+                    id="Model",
+                    label="OpenAI - Model",
+                    values=["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4", "gpt-4-32k"],
+                    initial_index=0,
+                )
+            ]
+        ).send()
+        value = settings["Model"]
         cl.user_session.set("pdf_mode", False)
 
         actions = [
