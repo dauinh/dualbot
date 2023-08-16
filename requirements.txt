@@ -2,5 +2,5 @@ pypdf==3.8.1
 pinecone-client==2.2.1
 tiktoken==0.3.3
 langchain==0.0.237
-chainlit==0.6.0
+chainlit==0.6.2
 google-search-results

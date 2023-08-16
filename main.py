@@ -14,6 +14,8 @@ import os
 import requests
 from chainlit.user_session import user_sessions
 import uuid
+import base64
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,6 +24,26 @@ REDIRECT_URL = os.environ.get("REDIRECT_URL")
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET")
 LOGIN_URL = os.environ.get("LOGIN_URL")
+
+PRESSINGLY_CREDIT_TOKEN_URL = os.environ.get("PRESSINGLY_CREDIT_TOKEN_URL")
+PRESSINGLY_ORG_ID = os.environ.get("PRESSINGLY_ORG_ID")
+PRESSINGLY_RETURN_URL = os.environ.get("PRESSINGLY_RETURN_URL")
+PRESSINGLY_CANCEL_URL = os.environ.get("PRESSINGLY_CANCEL_URL")
+
+credit_token_payload = json.dumps({
+    "organization_id": PRESSINGLY_ORG_ID,
+    "return_url": PRESSINGLY_RETURN_URL,
+    "cancel_url": PRESSINGLY_CANCEL_URL,
+})
+
+encrypted_params = base64.b64encode(credit_token_payload.encode('utf-8')).decode('utf-8')
+
+credit_token_issue_url = PRESSINGLY_CREDIT_TOKEN_URL + \
+    "?encrypted_params=" + encrypted_params \
+    + "&organization_id=" + PRESSINGLY_ORG_ID
+
+print("credit_token_issue_url", credit_token_issue_url)
+
 
 chainlit_routes = app.router.routes
 wildcard_route = chainlit_routes.pop()
@@ -38,7 +60,7 @@ async def serve(request: Request):
     print("auth_email", auth_email)
     print("package", package)
 
-    chainlit_session_id = str(uuid.uuid4())
+    chainlit_session_id = request.cookies.get("chainlit-session", str(uuid.uuid4()))
     response.set_cookie(
         key="chainlit-session", value=chainlit_session_id, httponly=True
     )
@@ -55,61 +77,87 @@ async def helloworld(request: Request):
     # print(request._query_params)
     auth_code = request._query_params["code"]
     url = "https://pressingly-account.onrender.com/oauth/token"
-    myobj = {
+    payload = {
         "grant_type": "authorization_code",
         "client_id": OIDC_CLIENT_ID,
         "client_secret": OIDC_CLIENT_SECRET,
         "redirect_uri": REDIRECT_URL,
         "code": auth_code,
     }
-    # print("query params", myobj)
-    x = requests.post(url, json=myobj)
-    response = x.json()
-    # print(x.json())
-    # id_token = response['id_token']
+    
+    # Send POST request to Pressingly Auth server
+    response = requests.post(url, json=payload)
+    response = response.json()
+    # print(response)
+
+    # Receives access token
     access_token = "Bearer " + response["access_token"]
-    # print(access_token)
+
+    # Request user info
     userinfo_url = "https://pressingly-account.onrender.com/oauth/userinfo"
     headers = {"Authorization": access_token}
-    y = requests.get(userinfo_url, headers=headers)
-    auth_email = y.json()["email"]
+    user_info_response = requests.get(userinfo_url, headers=headers)
+    auth_email = user_info_response.json()["email"]
 
     response = RedirectResponse("/")
     response.set_cookie(key="auth_email", value=auth_email)
     return response
 
 
-# NOTE: pay per session (chat window) and tokens
-@app.get("/charge")
-async def charge(request: Request):
-    """Send transaction to Pressingly Server
-
-    1. send user info to Pressingly
-    2. receives credit token -> save to user session
-    """
+# Example link: https://dualbot-image-7tzprwbq4a-df.a.run.app/credit_token?encrypted_credit_token=103ef4a520d6cb4be7a3547924f4f2daf9c79166fee9c185820597c57ab5747db45cc243ae87023bacc1155cd230829cc3893f58c9650bb8a28a27878eacf885
+@app.get("/credit_token")
+async def credit_token(request: Request):
     chainlit_session_id = request.cookies.get("chainlit-session")
-    total_cost = user_sessions[chainlit_session_id]["total_cost"]
-    print("send to Pressingly: $", total_cost)
-    return
+    credit_token = request.query_params.get("encrypted_credit_token")
+    user_sessions[chainlit_session_id]["credit_token"] = credit_token
+
+    print("Success to get credit: ", credit_token)
+    print("user_sessions", user_sessions[chainlit_session_id])
+
+    return RedirectResponse("/")
 
 
 chainlit_routes.append(wildcard_route)
 
 
 import chainlit as cl
+from chainlit.input_widget import Select
 
+from datetime import datetime
 from setup import search_agent
 from utils import create_pdf_agent, process_response
 from exceptions import *
 
 
+# charge("af72ec69e8743f53d96a202f2a453048d715a58aad2d12dc4df71ec6a8613c3afbc7456ee366c0bf046b91c1f5b388c231e0b97ba560a26b175a8a354f414aee", 0.1, "USD")
+def charge_credit_token(credit_token, amount, currency):
+    """Send transaction to Pressingly Server"""
+    print("Charge: $", amount)
+
+    charge_url = "https://pressingly-account.onrender.com/credit_tokens/charge"
+
+    data = {
+        'credit_token': credit_token,
+        'amount': amount,
+        'currency': currency
+    }
+
+    response = requests.post(charge_url, data=data)
+    transaction = response.json()
+    print("transaction", transaction)
+
+    return True
+
+
 @cl.on_chat_start
 async def start():
+    # charge_credit_token("af72ec69e8743f53d96a202f2a453048d715a58aad2d12dc4df71ec6a8613c3afbc7456ee366c0bf046b91c1f5b388c231e0b97ba560a26b175a8a354f414aee", 0.1, "USD")
     try:
+        charge_credit_token(cl.user_session.get("credit_token"), 0.1, "USD")
         ### SIGN IN
         email = cl.user_session.get("auth_email")
-        if not email:
-            raise AuthenticationError
+        # if not email:
+        #     raise AuthenticationError
         await cl.Message(
             content=f"**Welcome to Cactusdemocracy!** \
                     \nHi {email}! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you."
@@ -122,6 +170,17 @@ async def start():
 
         ### MAIN CHAT
         # Always default to search mode
+        settings = await cl.ChatSettings(
+            [
+                Select(
+                    id="Model",
+                    label="OpenAI - Model",
+                    values=["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4", "gpt-4-32k"],
+                    initial_index=0,
+                )
+            ]
+        ).send()
+        value = settings["Model"]
         cl.user_session.set("pdf_mode", False)
 
         actions = [
@@ -149,13 +208,13 @@ async def start():
             cl.Action(
                 name="package_word",
                 value="False",
-                label="Word usage - $0.002/word",
+                label="Pay per word - $0.002/word",
                 description="Include words from questions and answers",
             ),
             cl.Action(
                 name="package_min",
                 value="False",
-                label="15 mins - $0.10",
+                label="Pay per 15-min - $0.10",
                 description="Auto expire after 15 mins",
             ),
         ]
@@ -166,69 +225,67 @@ async def start():
         ).send()
 
 
-def charge(credit_token, amount, currency):
-    """Send to Pressingly Payment"""
-    pass
-
-
-def issue_credit_token(org_id, return_url, cancel_url):
-    """
-    Successful payment --> return_url (current implementation)
-    Unsuccessful payment --> cancel_url (coming soon)
-
-    return_url -- session/user ID
-    """
-    pass
-
-
-# NOTE: implement paywall for each invalid credit token
-# User clicks on paywall --> redirect to Pressingly to issue credit token
-# --> save credit token to user session
-# On each message, check for credit token, if not show paywall
 @cl.on_message
 async def main(message: str):
     try:
         pdf_mode = cl.user_session.get("pdf_mode")
+        package = cl.user_session.get("package")
 
-        # Embedding model: $0.0001 / 1K tokens
+        # 15-min package: check time
+        start = cl.user_session.get("package_start_time")
+        cur = datetime.now()
+        # Convert to mins
+        start_min = start.hour * 60 + start.minute
+        cur_min = cur.hour * 60 + cur.minute
+        print('start time', start)
+        print('current time', cur)
+        usage_time = cur_min - start_min
+        
+        # Word usage package: keep word count
         total_cost = cl.user_session.get("total_cost")
+        message_length = len(message)
 
-        # Input $0.0015 / 1K tokens
-        mess_len = len(message)
-
-        # $0.002 / 1K tokens
         if pdf_mode:
             pdf_agent = cl.user_session.get("pdf_agent")
             res = await pdf_agent.acall(
                 message, callbacks=[cl.AsyncLangchainCallbackHandler()]
             )
             total_cost += 0.5
-            mess_len += len(res["answer"].split(" "))
+            message_length += len(res["answer"].split(" "))
         else:
             search_agent = cl.user_session.get("search_agent")
             res = await cl.make_async(search_agent)(
                 message, callbacks=[cl.LangchainCallbackHandler()]
             )
-            mess_len += len(res["output"].split(" "))
+            message_length += len(res["output"].split(" "))
 
-        # Calculate usage
-        mess_cost = 0.002 * (mess_len / 1000)
+        # Calculate cost
+        mess_cost = 0.002 * (message_length / 1000)
         total_cost += mess_cost
         cl.user_session.set("total_cost", total_cost)
-        print("each message", mess_len, mess_cost)
+        print("each message", message_length, mess_cost)
         print("total cost", total_cost)
         # amount = mess_cost
 
-        # Pressing Payment API
-        # charge(credit_token, amount, currency)
-
         # User reaches limit of subscription package
-        if total_cost > 0.6:
+        if (package == "word" and total_cost > 0.6) or \
+            (package == "min" and usage_time > 15):
             cl.user_session.set("pdf_agent", None)
             cl.user_session.set("search_agent", None)
 
+        package_info = {
+            "package": package,
+            "total_cost": total_cost,
+            "message_length": message_length,
+            "usage_time": usage_time,
+        }
+
         # Do any post processing here
-        await process_response(res, total_cost, mess_len)
+        await process_response(res, package_info)
+
+        # Pressing Payment API
+        # charge(credit_token, amount, currency)
+        
     except AttributeError:
         await cl.Message(
             content="You have run out of credits for current session \
@@ -240,8 +297,6 @@ async def main(message: str):
 
 """Handle buttons
 """
-
-
 @cl.action_callback("pdf_mode")
 async def on_action(action):
     # On button click, change to PDF reader mode
@@ -259,6 +314,8 @@ async def on_action(action):
 async def on_action(action):
     await cl.Message(content="15-min package selected!").send()
     cl.user_session.set("package", "min")
+    cl.user_session.set("package_start_time", datetime.now())
+    cl.user_session.set("total_cost", 0)
     await start()
 
 
@@ -266,5 +323,6 @@ async def on_action(action):
 async def on_action(action):
     await cl.Message(content="Word usage package selected!").send()
     cl.user_session.set("package", "word")
+    cl.user_session.set("package_start_time", datetime.now())
     cl.user_session.set("total_cost", 0)
     await start()
