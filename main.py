@@ -14,6 +14,8 @@ import os
 import requests
 from chainlit.user_session import user_sessions
 import uuid
+import base64
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,6 +24,26 @@ REDIRECT_URL = os.environ.get("REDIRECT_URL")
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET")
 LOGIN_URL = os.environ.get("LOGIN_URL")
+
+PRESSINGLY_CREDIT_TOKEN_URL = os.environ.get("PRESSINGLY_CREDIT_TOKEN_URL")
+PRESSINGLY_ORG_ID = os.environ.get("PRESSINGLY_ORG_ID")
+PRESSINGLY_RETURN_URL = os.environ.get("PRESSINGLY_RETURN_URL")
+PRESSINGLY_CANCEL_URL = os.environ.get("PRESSINGLY_CANCEL_URL")
+
+credit_token_payload = json.dumps({
+    "organization_id": PRESSINGLY_ORG_ID,
+    "return_url": PRESSINGLY_RETURN_URL,
+    "cancel_url": PRESSINGLY_CANCEL_URL,
+})
+
+encrypted_params = base64.b64encode(credit_token_payload.encode('utf-8')).decode('utf-8')
+
+credit_token_issue_url = PRESSINGLY_CREDIT_TOKEN_URL + \
+    "?encrypted_params=" + encrypted_params \
+    + "&organization_id=" + PRESSINGLY_ORG_ID
+
+print("credit_token_issue_url", credit_token_issue_url)
+
 
 chainlit_routes = app.router.routes
 wildcard_route = chainlit_routes.pop()
@@ -38,7 +60,7 @@ async def serve(request: Request):
     print("auth_email", auth_email)
     print("package", package)
 
-    chainlit_session_id = str(uuid.uuid4())
+    chainlit_session_id = request.cookies.get("chainlit-session", str(uuid.uuid4()))
     response.set_cookie(
         key="chainlit-session", value=chainlit_session_id, httponly=True
     )
@@ -55,42 +77,44 @@ async def helloworld(request: Request):
     # print(request._query_params)
     auth_code = request._query_params["code"]
     url = "https://pressingly-account.onrender.com/oauth/token"
-    myobj = {
+    payload = {
         "grant_type": "authorization_code",
         "client_id": OIDC_CLIENT_ID,
         "client_secret": OIDC_CLIENT_SECRET,
         "redirect_uri": REDIRECT_URL,
         "code": auth_code,
     }
-    # print("query params", myobj)
-    x = requests.post(url, json=myobj)
-    response = x.json()
-    # print(x.json())
-    # id_token = response['id_token']
+    
+    # Send POST request to Pressingly Auth server
+    response = requests.post(url, json=payload)
+    response = response.json()
+    # print(response)
+
+    # Receives access token
     access_token = "Bearer " + response["access_token"]
-    # print(access_token)
+
+    # Request user info
     userinfo_url = "https://pressingly-account.onrender.com/oauth/userinfo"
     headers = {"Authorization": access_token}
-    y = requests.get(userinfo_url, headers=headers)
-    auth_email = y.json()["email"]
+    user_info_response = requests.get(userinfo_url, headers=headers)
+    auth_email = user_info_response.json()["email"]
 
     response = RedirectResponse("/")
     response.set_cookie(key="auth_email", value=auth_email)
     return response
 
 
-# NOTE: pay per session (chat window) and tokens
-@app.get("/charge")
-async def charge(request: Request):
-    """Send transaction to Pressingly Server
-
-    1. send user info to Pressingly
-    2. receives credit token -> save to user session
-    """
+# Example link: https://dualbot-image-7tzprwbq4a-df.a.run.app/credit_token?encrypted_credit_token=103ef4a520d6cb4be7a3547924f4f2daf9c79166fee9c185820597c57ab5747db45cc243ae87023bacc1155cd230829cc3893f58c9650bb8a28a27878eacf885
+@app.get("/credit_token")
+async def credit_token(request: Request):
     chainlit_session_id = request.cookies.get("chainlit-session")
-    total_cost = user_sessions[chainlit_session_id]["total_cost"]
-    print("send to Pressingly: $", total_cost)
-    return
+    credit_token = request.query_params.get("encrypted_credit_token")
+    user_sessions[chainlit_session_id]["credit_token"] = credit_token
+
+    print("Success to get credit: ", credit_token)
+    print("user_sessions", user_sessions[chainlit_session_id])
+
+    return RedirectResponse("/")
 
 
 chainlit_routes.append(wildcard_route)
@@ -105,10 +129,31 @@ from utils import create_pdf_agent, process_response
 from exceptions import *
 
 
+# charge("af72ec69e8743f53d96a202f2a453048d715a58aad2d12dc4df71ec6a8613c3afbc7456ee366c0bf046b91c1f5b388c231e0b97ba560a26b175a8a354f414aee", 0.1, "USD")
+def charge_credit_token(credit_token, amount, currency):
+    """Send transaction to Pressingly Server"""
+    print("Charge: $", amount)
+
+    charge_url = "https://pressingly-account.onrender.com/credit_tokens/charge"
+
+    data = {
+        'credit_token': credit_token,
+        'amount': amount,
+        'currency': currency
+    }
+
+    response = requests.post(charge_url, data=data)
+    transaction = response.json()
+    print("transaction", transaction)
+
+    return True
+
 
 @cl.on_chat_start
 async def start():
+    # charge_credit_token("af72ec69e8743f53d96a202f2a453048d715a58aad2d12dc4df71ec6a8613c3afbc7456ee366c0bf046b91c1f5b388c231e0b97ba560a26b175a8a354f414aee", 0.1, "USD")
     try:
+        charge_credit_token(cl.user_session.get("credit_token"), 0.1, "USD")
         ### SIGN IN
         email = cl.user_session.get("auth_email")
         # if not email:
@@ -180,25 +225,6 @@ async def start():
         ).send()
 
 
-def charge(credit_token, amount, currency):
-    """Send to Pressingly Payment"""
-    pass
-
-
-def issue_credit_token(org_id, return_url, cancel_url):
-    """
-    Successful payment --> return_url (current implementation)
-    Unsuccessful payment --> cancel_url (coming soon)
-
-    return_url -- session/user ID
-    """
-    pass
-
-
-# NOTE: implement paywall for each invalid credit token
-# User clicks on paywall --> redirect to Pressingly to issue credit token
-# --> save credit token to user session
-# On each message, check for credit token, if not show paywall
 @cl.on_message
 async def main(message: str):
     try:
