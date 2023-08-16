@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+APP_URL = "https://dualbot-image-7tzprwbq4a-df.a.run.app"
+
 REDIRECT_URL = os.environ.get("REDIRECT_URL")
 OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID")
 OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET")
@@ -153,7 +155,6 @@ def charge_credit_token(credit_token, amount, currency):
 async def start():
     # charge_credit_token("af72ec69e8743f53d96a202f2a453048d715a58aad2d12dc4df71ec6a8613c3afbc7456ee366c0bf046b91c1f5b388c231e0b97ba560a26b175a8a354f414aee", 0.1, "USD")
     try:
-        charge_credit_token(cl.user_session.get("credit_token"), 0.1, "USD")
         ### SIGN IN
         email = cl.user_session.get("auth_email")
         # if not email:
@@ -167,7 +168,8 @@ async def start():
         package = cl.user_session.get("package")
         if not package:
             raise SubscriptionError
-
+        print('credit token', cl.user_session.get("credit_token"))
+        # charge_credit_token(cl.user_session.get("credit_token"), 0.1, "USD")
         ### MAIN CHAT
         # Always default to search mode
         settings = await cl.ChatSettings(
