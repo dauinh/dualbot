@@ -174,8 +174,6 @@ async def start():
             content=f"**Welcome to Cactusdemocracy!** \
                     \nHi {email}! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you."
         ).send()
-        # pprint(user_sessions)
-        response = requests.get(APP_URL)
 
         print('credit token', cl.user_session.get("credit_token"))
         ### PAYWALL
