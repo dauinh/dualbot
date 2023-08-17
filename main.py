@@ -29,7 +29,7 @@ LOGIN_URL = os.environ.get("LOGIN_URL")
 
 PRESSINGLY_CREDIT_TOKEN_URL = os.environ.get("PRESSINGLY_CREDIT_TOKEN_URL")
 PRESSINGLY_ORG_ID = os.environ.get("PRESSINGLY_ORG_ID")
-PRESSINGLY_RETURN_URL = os.environ.get("PRESSINGLY_RETURN_URL")
+PRESSINGLY_RETURN_URL = "http://localhost:8000/credit_token"
 PRESSINGLY_CANCEL_URL = os.environ.get("PRESSINGLY_CANCEL_URL")
 
 credit_token_payload = json.dumps({
@@ -59,18 +59,24 @@ async def serve(request: Request):
     response = HTMLResponse(content=html_template, status_code=200)
     auth_email = request.cookies.get("auth_email")
     package = request.cookies.get("package")
+    credit_token = request.cookies.get("credit_token")
     print("auth_email", auth_email)
-    print("package", package)
+    # print("package", package)
+    # print("credit_token", credit_token)
 
     chainlit_session_id = request.cookies.get("chainlit-session", str(uuid.uuid4()))
+    # print('current session id', chainlit_session_id)
     response.set_cookie(
         key="chainlit-session", value=chainlit_session_id, httponly=True
     )
+    # if chainlit_session_id not in user_sessions:
     user_sessions[chainlit_session_id] = {
         "auth_email": auth_email,
         "total_cost": 0,
         "package": package,
+        "credit_token": credit_token,
     }
+    
     return response
 
 
@@ -115,8 +121,12 @@ async def credit_token(request: Request):
 
     print("Success to get credit: ", credit_token)
     print("user_sessions", user_sessions[chainlit_session_id])
+    # print(chainlit_session_id)
 
-    return RedirectResponse("/")
+    response = RedirectResponse("/")
+    response.set_cookie(key="credit_token", value=credit_token)
+    return response
+
 
 
 chainlit_routes.append(wildcard_route)
@@ -150,25 +160,29 @@ def charge_credit_token(credit_token, amount, currency):
 
     return True
 
-
+from pprint import pprint
 @cl.on_chat_start
 async def start():
     # charge_credit_token("af72ec69e8743f53d96a202f2a453048d715a58aad2d12dc4df71ec6a8613c3afbc7456ee366c0bf046b91c1f5b388c231e0b97ba560a26b175a8a354f414aee", 0.1, "USD")
     try:
         ### SIGN IN
         email = cl.user_session.get("auth_email")
-        # if not email:
-        #     raise AuthenticationError
+        if not email:
+            raise AuthenticationError
         await cl.Message(
             content=f"**Welcome to Cactusdemocracy!** \
                     \nHi {email}! 👋 We're excited to have you on board. Whether you're seeking insights, seeking solutions, or simply engaging in thought-provoking conversations, Cactusdemocracy is here to help you."
         ).send()
+        # pprint(user_sessions)
+        response = requests.get(APP_URL)
 
+        print('credit token', cl.user_session.get("credit_token"))
         ### PAYWALL
         package = cl.user_session.get("package")
         if not package:
             raise SubscriptionError
-        print('credit token', cl.user_session.get("credit_token"))
+        # requests.get(credit_token_issue_url)
+        
         # charge_credit_token(cl.user_session.get("credit_token"), 0.1, "USD")
         ### MAIN CHAT
         # Always default to search mode
@@ -232,6 +246,11 @@ async def main(message: str):
     try:
         pdf_mode = cl.user_session.get("pdf_mode")
         package = cl.user_session.get("package")
+        # print('------------------------')
+        # print(vars(cl.user_session))
+        # print('------------------------')
+        # pprint(user_sessions)
+        # print('------------------------')
 
         # 15-min package: check time
         start = cl.user_session.get("package_start_time")
