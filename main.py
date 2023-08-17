@@ -182,22 +182,11 @@ async def start():
         package = cl.user_session.get("package")
         if not package:
             raise SubscriptionError
-        # requests.get(credit_token_issue_url)
         
-        # charge_credit_token(cl.user_session.get("credit_token"), 0.1, "USD")
+        requests.get(credit_token_issue_url)
+        charge_credit_token(cl.user_session.get("credit_token"), 0.1, "USD")
         ### MAIN CHAT
         # Always default to search mode
-        settings = await cl.ChatSettings(
-            [
-                Select(
-                    id="Model",
-                    label="OpenAI - Model",
-                    values=["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4", "gpt-4-32k"],
-                    initial_index=0,
-                )
-            ]
-        ).send()
-        value = settings["Model"]
         cl.user_session.set("pdf_mode", False)
 
         actions = [
