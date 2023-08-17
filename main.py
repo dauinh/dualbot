@@ -134,7 +134,6 @@ chainlit_routes.append(wildcard_route)
 
 
 import chainlit as cl
-from chainlit.input_widget import Select
 
 from datetime import datetime
 from setup import search_agent
@@ -161,7 +160,7 @@ def charge_credit_token(credit_token, amount, currency):
 
     return True
 
-from pprint import pprint
+
 @cl.on_chat_start
 async def start():
     # charge_credit_token("af72ec69e8743f53d96a202f2a453048d715a58aad2d12dc4df71ec6a8613c3afbc7456ee366c0bf046b91c1f5b388c231e0b97ba560a26b175a8a354f414aee", 0.1, "USD")
@@ -234,11 +233,6 @@ async def main(message: str):
     try:
         pdf_mode = cl.user_session.get("pdf_mode")
         package = cl.user_session.get("package")
-        # print('------------------------')
-        # print(vars(cl.user_session))
-        # print('------------------------')
-        # pprint(user_sessions)
-        # print('------------------------')
 
         # 15-min package: check time
         start = cl.user_session.get("package_start_time")
