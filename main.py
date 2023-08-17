@@ -29,7 +29,8 @@ LOGIN_URL = os.environ.get("LOGIN_URL")
 
 PRESSINGLY_CREDIT_TOKEN_URL = os.environ.get("PRESSINGLY_CREDIT_TOKEN_URL")
 PRESSINGLY_ORG_ID = os.environ.get("PRESSINGLY_ORG_ID")
-PRESSINGLY_RETURN_URL = "http://localhost:8000/credit_token"
+# PRESSINGLY_RETURN_URL = "http://localhost:8000/credit_token"
+PRESSINGLY_RETURN_URL = os.environ.get("PRESSINGLY_RETURN_URL")
 PRESSINGLY_CANCEL_URL = os.environ.get("PRESSINGLY_CANCEL_URL")
 
 credit_token_payload = json.dumps({
